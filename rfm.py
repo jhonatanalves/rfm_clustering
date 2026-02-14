@@ -94,6 +94,8 @@ def cluster_rfm_joint(
     rfm: pd.DataFrame,
     n_clusters: int,
     random_state: int,
+    n_init: int = 10,
+    max_iter: int = 300,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     KMeans conjunto no espaço padronizado (R_inv, F_log, M_log).
@@ -103,7 +105,7 @@ def cluster_rfm_joint(
     """
     Xs, enriched = build_rfm_features(rfm)
 
-    km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init="auto")
+    km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=n_init, max_iter=max_iter)
     cluster_id = km.fit_predict(Xs)
     enriched["ClusterId"] = cluster_id
 
@@ -139,7 +141,7 @@ def cluster_rfm_joint(
     enriched = enriched.drop(columns=["R_inv", "F_log", "M_log"], errors="ignore")
 
     # Reordena colunas principais
-    cols = ["Cliente", "Recencia", "Frequencia", "Receita", "ClusterId", "RankQualidade", "ScoreComposto"]
+    cols = ["Cliente", "ClusterId", "Recencia", "Frequencia", "Receita", "RankQualidade", "ScoreComposto"]
     enriched = enriched[cols]
 
     # Arredonda perfil para display

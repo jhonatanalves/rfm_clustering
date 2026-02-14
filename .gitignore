@@ -1,0 +1,20 @@
+# Exclusões padrão para projeto Python (Ambiente, Cache, IDEs e Sistema)
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+todo.txt
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Variáveis de ambiente
+.env
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
