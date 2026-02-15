@@ -75,7 +75,7 @@ def render_sidebar():
             temperature = st.slider("Temperatura", min_value=0.0, max_value=1.0, value=0.2, step=0.1)
 
         st.divider()
-        st.header("🧠 Configuração LLM")
+        st.header("🧠 Configuração LLM e Contexto")
 
         provider_name = st.radio("Provider", ["Gemini", "ChatGPT"], index=0)
 
@@ -113,7 +113,6 @@ def render_sidebar():
             model = st.selectbox("Modelo", st.session_state["llm_models"], index=idx)
             st.session_state["llm_model"] = model
 
-        st.markdown("---")
         st.caption("Contexto do Negócio (para a IA)")
         business_context = st.text_area(
             label="Contexto",

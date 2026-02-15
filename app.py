@@ -18,14 +18,15 @@ sidebar.init_session_state()
 config = sidebar.render_sidebar()
 
 # Main
-st.title("📊 Clusterização via RFM")
+st.title("📊 Clusterização de clientes via RFM")
 
 if not config["up"]:
     st.info("Faça upload de um CSV para começar.")
     st.stop()
 
 df = pd.read_csv(config["up"])
-results.render_data_preview(df)
+with st.container(border=True):
+    results.render_data_preview(df)
 
 mapping_data = mapping.render_column_mapping(df, config["data_structure"])
 
@@ -101,6 +102,11 @@ if rfm_out is None or cluster_profile is None:
     st.stop()
 
 results.render_results(rfm_out, cluster_profile)
+
+# Sugestão: Inserir gráficos aqui, logo após os resultados tabulares
+with st.container(border=True):
+    st.subheader("📈 Visualização dos Clusters")
+    results.render_cluster_charts(rfm_out)
 
 st.divider()
 

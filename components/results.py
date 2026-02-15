@@ -1,5 +1,10 @@
 import pandas as pd
 import streamlit as st
+try:
+    import plotly.express as px
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 from charts import render_scatter_grid
 
 
@@ -31,6 +36,42 @@ def render_results(rfm_out, cluster_profile):
             "text/csv",
         )
 
+def render_cluster_charts(rfm_df: pd.DataFrame):
+    """
+    Renderiza gráficos para análise técnica dos clusters (Boxplots e 3D),
+    úteis antes da nomeação via LLM.
+    """
+    if not HAS_PLOTLY:
+        st.warning("A biblioteca 'plotly' não foi encontrada. Instale com `pip install plotly` para ver os gráficos.")
+        return
+
+    # Prepara dados para plotagem (ClusterId como string para cores discretas)
+    plot_df = rfm_df.copy()
+    plot_df["ClusterId"] = plot_df["ClusterId"].astype(str)
+    
+    tab1, tab2 = st.tabs(["📦 Distribuição (Boxplots)", "🧊 Visualização 3D"])
+    
+    with tab1:
+        st.caption("Analise como cada variável se comporta dentro dos clusters. Isso ajuda a identificar manualmente quem são os 'Vips' ou 'Inativos'.")
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            fig_r = px.box(plot_df, x="ClusterId", y="Recencia", color="ClusterId", title="Recência (Dias)")
+            st.plotly_chart(fig_r, use_container_width=True)
+            
+        with c2:
+            fig_f = px.box(plot_df, x="ClusterId", y="Frequencia", color="ClusterId", title="Frequência (Qtd)")
+            st.plotly_chart(fig_f, use_container_width=True)
+            
+        with c3:
+            fig_m = px.box(plot_df, x="ClusterId", y="Receita", color="ClusterId", title="Valor (R$)")
+            st.plotly_chart(fig_m, use_container_width=True)
+
+    with tab2:
+        st.caption("Visão espacial dos agrupamentos.")
+        fig_3d = px.scatter_3d(plot_df, x='Recencia', y='Frequencia', z='Receita',
+                               color='ClusterId', opacity=0.7, title="Dispersão RFM 3D")
+        st.plotly_chart(fig_3d, use_container_width=True)
 
 def render_llm_results(rfm_out, cluster_profile, labels_df):
     rfm_named = rfm_out.merge(labels_df, on="ClusterId", how="left")
