@@ -50,10 +50,63 @@ def render_sidebar():
             help="Defina se o CSV detalha itens (precisa agrupar) ou se já é consolidado."
         )
 
-        st.caption("Configurações de Processamento")
-        auto_clean = st.toggle("Aplicar limpeza automática", value=True)
+        st.divider()
+        st.subheader("🧹 Limpeza de Dados")
+        
+        auto_clean = st.toggle("Habilitar limpeza automática", value=True)
+        
+        # Defaults (valores usados se a limpeza estiver desligada ou para opções ocultas)
+        clean_duplicates = False
+        clean_imputation = "median"
+        clean_outliers = True
+
         if auto_clean:
-            st.caption("Remove duplicados e trata nulos automaticamente.")
+            with st.container(border=True):
+                st.caption("Selecione as etapas:")
+                
+                # 1. Duplicatas
+                dup_opt = st.radio("Remover registros duplicados?", ["Sim", "Não"], index=0, horizontal=True)
+                clean_duplicates = True if dup_opt == "Sim" else False
+                
+                st.markdown("---")
+                
+                # 2. Outliers
+                outlier_opt = st.radio(
+                    "Tratamento de Outliers",
+                    ["Ajustar (Winsorization)", "Substituir pela Mediana", "Remover", "Manter (não tratar)"],
+                    index=0,
+                    help="Winsorization limita os extremos aos percentis 5% e 95%. Remover exclui a linha inteira."
+                )
+                
+                if outlier_opt == "Ajustar (Winsorization)":
+                    clean_outliers = "winz"
+                elif outlier_opt == "Substituir pela Mediana":
+                    clean_outliers = "median"
+                elif outlier_opt == "Remover":
+                    clean_outliers = "delete"
+                else:
+                    clean_outliers = False
+                
+                st.markdown("---")
+
+                # 3. Dados Ausentes 
+                missing_opt = st.radio(
+                    "Tratamento de Dados Ausentes",
+                    ["Preencher com Mediana/Moda", "Preencher com Média/Moda", "Preencher com Mais Frequente", "Preencher com KNN (ML)", "Preencher com Regressão (ML)", "Remover linhas", "Manter (não tratar)"],
+                    index=0,
+                    help="Define como preencher vazios. Colunas numéricas usam a 1ª opção (Média/Mediana). Colunas de texto usam sempre a Moda (valor mais comum)."
+                )
+
+                mapping_missing = {
+                    "Preencher com Mediana/Moda": "median",
+                    "Preencher com Média/Moda": "mean",
+                    "Preencher com Mais Frequente": "most_frequent",
+                    "Preencher com KNN (ML)": "knn",
+                    "Preencher com Regressão (ML)": "linreg",
+                    "Remover linhas": "delete",
+                    "Manter (não tratar)": False
+                }
+                clean_imputation = mapping_missing[missing_opt]
 
         st.divider()
         st.subheader("⚙️ Clusterização")
@@ -125,7 +178,10 @@ def render_sidebar():
     return {
         "up": up,
         "data_structure": data_structure,
-        "auto_clean": auto_clean,
+        "auto_clean": auto_clean, 
+        "clean_duplicates": clean_duplicates,
+        "clean_imputation": clean_imputation,
+        "clean_outliers": clean_outliers,
         "n_clusters": n_clusters,
         "random_state": random_state,
         "n_init": n_init,

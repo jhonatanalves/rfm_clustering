@@ -5,7 +5,7 @@ try:
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
-from charts import render_scatter_grid
+from visualization.charts import render_scatter_grid
 
 
 def render_data_preview(df: pd.DataFrame):
@@ -41,6 +41,8 @@ def render_cluster_charts(rfm_df: pd.DataFrame):
     Renderiza gráficos para análise técnica dos clusters (Boxplots e 3D),
     úteis antes da nomeação via LLM.
     """
+    tab1, tab2, tab3 = st.tabs(["📦 Distribuição (Boxplots)", "🧊 Visualização 3D", "📍 Dispersão 2D"])
+
     if not HAS_PLOTLY:
         st.warning("A biblioteca 'plotly' não foi encontrada. Instale com `pip install plotly` para ver os gráficos.")
         return
@@ -48,8 +50,6 @@ def render_cluster_charts(rfm_df: pd.DataFrame):
     # Prepara dados para plotagem (ClusterId como string para cores discretas)
     plot_df = rfm_df.copy()
     plot_df["ClusterId"] = plot_df["ClusterId"].astype(str)
-    
-    tab1, tab2 = st.tabs(["📦 Distribuição (Boxplots)", "🧊 Visualização 3D"])
     
     with tab1:
         st.caption("Analise como cada variável se comporta dentro dos clusters. Isso ajuda a identificar manualmente quem são os 'Vips' ou 'Inativos'.")
@@ -72,6 +72,20 @@ def render_cluster_charts(rfm_df: pd.DataFrame):
         fig_3d = px.scatter_3d(plot_df, x='Recencia', y='Frequencia', z='Receita',
                                color='ClusterId', opacity=0.7, title="Dispersão RFM 3D")
         st.plotly_chart(fig_3d, use_container_width=True)
+
+    with tab3:
+        st.caption("Análise bidimensional dos pares de variáveis RFM.")
+        p1, p2, p3 = st.columns(3)
+        
+        with p1:
+            fig_rf = px.scatter(plot_df, x="Recencia", y="Frequencia", color="ClusterId", title="Recência x Frequência")
+            st.plotly_chart(fig_rf, use_container_width=True)
+        with p2:
+            fig_fr = px.scatter(plot_df, x="Frequencia", y="Receita", color="ClusterId", title="Frequência x Receita")
+            st.plotly_chart(fig_fr, use_container_width=True)
+        with p3:
+            fig_rr = px.scatter(plot_df, x="Recencia", y="Receita", color="ClusterId", title="Recência x Receita")
+            st.plotly_chart(fig_rr, use_container_width=True)
 
 def render_llm_results(rfm_out, cluster_profile, labels_df):
     rfm_named = rfm_out.merge(labels_df, on="ClusterId", how="left")

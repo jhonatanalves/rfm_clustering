@@ -10,34 +10,17 @@ from rfm import (
     cluster_rfm_joint,
 )
 from llm.domain import build_cluster_naming_prompt, build_cluster_labels
+from cleaning.pipeline import apply_autoclean
 
-st.set_page_config(page_title="RFM Segmentation", layout="wide")
 
-# Inicialização
-sidebar.init_session_state()
-config = sidebar.render_sidebar()
-
-# Main
-st.title("📊 Clusterização de clientes via RFM")
-
-if not config["up"]:
-    st.info("Faça upload de um CSV para começar.")
-    st.stop()
-
-df = pd.read_csv(config["up"])
-with st.container(border=True):
-    results.render_data_preview(df)
-
-mapping_data = mapping.render_column_mapping(df, config["data_structure"])
-
-if mapping_data["run_pipeline"]:
-    # Validação manual dos campos obrigatórios antes de prosseguir
+def validate_mapping_inputs(mapping_data: dict, data_structure: str):
+    """Valida se todos os campos obrigatórios foram preenchidos."""
     missing_fields = []
     if not mapping_data["customer_col"]: missing_fields.append("Id do cliente")
     if not mapping_data["date_col"]: missing_fields.append("Data da compra")
     if not mapping_data["monetary_col"]: missing_fields.append("Valor da compra")
     if not mapping_data["approved_col"]: missing_fields.append("Status do Pedido")
-    if config["data_structure"].startswith("Itens") and not mapping_data["order_col"]: missing_fields.append("ID do Pedido")
+    if data_structure.startswith("Itens") and not mapping_data["order_col"]: missing_fields.append("ID do Pedido")
     
     if missing_fields:
         st.error(f"Por favor, preencha os seguintes campos obrigatórios: {', '.join(missing_fields)}")
@@ -47,9 +30,52 @@ if mapping_data["run_pipeline"]:
         st.error("Por favor, selecione pelo menos um valor em 'Valores para considerar'.")
         st.stop()
 
+
+def preprocess_dataframe(df: pd.DataFrame, mapping_data: dict, config: dict) -> pd.DataFrame:
+    """Seleciona colunas, remove nulos e aplica limpeza automática, se configurado."""
+    cols_to_use = [
+        mapping_data["customer_col"],
+        mapping_data["date_col"],
+        mapping_data["monetary_col"]
+    ]
+    if mapping_data["order_col"]:
+        cols_to_use.append(mapping_data["order_col"])
+    if mapping_data["approved_col"]:
+        cols_to_use.append(mapping_data["approved_col"])
+
+    df_clean = df[cols_to_use].copy()
+
+    df_clean = df_clean.dropna(subset=[mapping_data["customer_col"], mapping_data["date_col"]])
+    
+    df_clean[mapping_data["customer_col"]] = df_clean[mapping_data["customer_col"]].astype(str)
+
+    if config["auto_clean"]:
+        if config["clean_duplicates"]:
+            df_clean = df_clean.drop_duplicates()
+
+        monetary_col = mapping_data["monetary_col"]
+        
+        with st.spinner("Aplicando limpeza automática (apenas Valor Monetário)..."):
+            df_money = df_clean[[monetary_col]].copy()
+            
+            df_money = apply_autoclean(
+                df_money,
+                tratar_duplicados=False, 
+                imputacao=config["clean_imputation"],
+                tratar_outliers=config["clean_outliers"]
+            )
+            
+            df_clean = df_clean.loc[df_money.index]
+            df_clean[monetary_col] = df_money[monetary_col]
+    
+    return df_clean
+
+
+def execute_clustering_pipeline(df_clean: pd.DataFrame, mapping_data: dict, config: dict):
+    """Executa o cálculo de RFM, determina K e realiza aclusterização."""
     try:
         rfm_table = build_rfm_table(
-            data=df,
+            data=df_clean,
             customer_col=mapping_data["customer_col"],
             date_col=mapping_data["date_col"],
             monetary_col=mapping_data["monetary_col"],
@@ -68,7 +94,7 @@ if mapping_data["run_pipeline"]:
             st.stop()
 
         if chosen_k is None:
-            from rfm import build_rfm_features  # import local para evitar circularidade
+            from rfm import build_rfm_features  
             Xs, _ = build_rfm_features(rfm_table)
             
             safe_k_max = min(10, len(rfm_table) - 1)
@@ -94,27 +120,14 @@ if mapping_data["run_pipeline"]:
         st.stop()
 
 
-rfm_out = st.session_state.get("rfm_out")
-cluster_profile = st.session_state.get("cluster_profile")
+def handle_llm_generation(cluster_profile: pd.DataFrame, config: dict):
+    """Gerencia a interação com a LLM para nomeação e explicação dos clusters."""
+    st.header(f"🤖 Nomear e explicar clusters ({config['provider_name']})")
 
-if rfm_out is None or cluster_profile is None:
-    st.info("Configure o mapeamento e clique em **Rodar RFM + Clusterização**.")
-    st.stop()
+    if not config["api_key"] or not config["model"]:
+        st.info("Selecione o provider, insira a API Key e defina um modelo na barra lateral.")
+        return
 
-results.render_results(rfm_out, cluster_profile)
-
-# Sugestão: Inserir gráficos aqui, logo após os resultados tabulares
-with st.container(border=True):
-    st.subheader("📈 Visualização dos Clusters")
-    results.render_cluster_charts(rfm_out)
-
-st.divider()
-
-st.header(f"🤖 Nomear e explicar clusters ({config['provider_name']})")
-
-if not config["api_key"] or not config["model"]:
-    st.info("Selecione o provider, insira a API Key e defina um modelo na barra lateral.")
-else:
     if st.button("Gerar nomes e estratégias (LLM)", type="primary"):
         business_context = st.session_state.get("business_context", "")
         prompt = build_cluster_naming_prompt(cluster_profile, business_context)
@@ -139,9 +152,56 @@ else:
             st.error(f"Falha na geração de rótulos: {e}")
 
 
-labels_df = st.session_state.get("cluster_labels")
+def main():
+    st.set_page_config(page_title="RFM Segmentation", layout="wide")
+    
+    # Inicialização
+    sidebar.init_session_state()
+    config = sidebar.render_sidebar()
 
-if labels_df is None:
-    st.info("Gere os nomes via LLM para enriquecer os gráficos e as descrições.")
-else:
-    results.render_llm_results(rfm_out, cluster_profile, labels_df)
+    st.title("📊 Clusterização de clientes via RFM")
+
+    if not config["up"]:
+        st.info("Faça upload de um CSV para começar.")
+        st.stop()
+
+    df = pd.read_csv(config["up"])
+    with st.container(border=True):
+        results.render_data_preview(df)
+
+    mapping_data = mapping.render_column_mapping(df, config["data_structure"])
+
+    # 1. Pipeline de Clusterização
+    if mapping_data["run_pipeline"]:
+        validate_mapping_inputs(mapping_data, config["data_structure"])
+        df_clean = preprocess_dataframe(df, mapping_data, config)
+        execute_clustering_pipeline(df_clean, mapping_data, config)
+
+    # 2. Exibição de Resultados
+    rfm_out = st.session_state.get("rfm_out")
+    cluster_profile = st.session_state.get("cluster_profile")
+
+    if rfm_out is None or cluster_profile is None:
+        st.info("Configure o mapeamento e clique em **Rodar RFM + Clusterização**.")
+        st.stop()
+
+    results.render_results(rfm_out, cluster_profile)
+
+    with st.container(border=True):
+        st.subheader("📈 Visualização dos Clusters")
+        results.render_cluster_charts(rfm_out)
+
+    st.divider()
+
+    # 3. Pipeline de LLM
+    handle_llm_generation(cluster_profile, config)
+
+    labels_df = st.session_state.get("cluster_labels")
+    if labels_df is None:
+        st.info("Gere os nomes via LLM para enriquecer os gráficos e as descrições.")
+    else:
+        results.render_llm_results(rfm_out, cluster_profile, labels_df)
+
+
+if __name__ == "__main__":
+    main()

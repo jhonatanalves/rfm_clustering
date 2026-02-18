@@ -14,6 +14,21 @@ def build_rfm_table(
     approved_col: str | None,
     approved_values: list[str],
 ) -> pd.DataFrame:
+    """
+    Converte o DataFrame de transações brutas em uma tabela RFM (Recência, Frequência, Receita) por cliente.
+
+    Args:
+        data (pd.DataFrame): DataFrame original com as transações.
+        customer_col (str): Nome da coluna de ID do cliente.
+        date_col (str): Nome da coluna de data.
+        monetary_col (str): Nome da coluna de valor monetário.
+        order_col (str | None): Nome da coluna de ID do pedido. Se None, conta linhas como frequência.
+        approved_col (str | None): Nome da coluna de status do pedido.
+        approved_values (list[str]): Lista de status considerados válidos para o cálculo.
+
+    Returns:
+        pd.DataFrame: DataFrame contendo ['Cliente', 'Recencia', 'Frequencia', 'Receita'].
+    """
     df = data.copy()
 
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
@@ -46,12 +61,20 @@ def build_rfm_table(
 
 def build_rfm_features(rfm: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
     """
-    Constrói features robustas para clusterização conjunta:
-    - R_inv = -Recencia (maior = melhor)
-    - F_log = log1p(Frequencia)
-    - M_log = log1p(Receita)
-    Depois padroniza via StandardScaler.
-    Retorna (Xs, rfm_enriquecido).
+    Prepara as features matemáticas para o algoritmo de clusterização (K-Means).
+    
+    Transformações aplicadas:
+    1. Inversão da Recência (R_inv = -Recencia): Para que valores maiores indiquem "melhor" cliente, alinhando com Frequência e Receita.
+    2. Logaritmo (log1p) em Frequência e Receita: Para reduzir a assimetria (skewness) comum em dados financeiros.
+    3. Padronização (StandardScaler): Para colocar todas as variáveis na mesma escala (média 0, desvio padrão 1).
+
+    Args:
+        rfm (pd.DataFrame): Tabela RFM base.
+
+    Returns:
+        tuple[np.ndarray, pd.DataFrame]: 
+            - Xs: Matriz numpy padronizada pronta para o modelo.
+            - out: DataFrame com as colunas de features adicionadas.
     """
     out = rfm.copy()
     out["R_inv"] = -out["Recencia"]
@@ -64,6 +87,19 @@ def build_rfm_features(rfm: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
 
 
 def calcular_wcss(Xs: np.ndarray, k_min: int = 2, k_max: int = 10, random_state: int = 42) -> list[float]:
+    """
+    Calcula a inércia para diferentes valores de k.
+    Utilizado para gerar o gráfico do cotovelo.
+
+    Args:
+        Xs (np.ndarray): Matriz de features padronizadas.
+        k_min (int): Valor mínimo de k a testar.
+        k_max (int): Valor máximo de k a testar.
+        random_state (int): Semente aleatória para reprodutibilidade.
+
+    Returns:
+        list[float]: Lista contendo os valores de inércia para cada k.
+    """
     wcss = []
     for k in range(k_min, k_max + 1):
         km = KMeans(n_clusters=k, init="k-means++", n_init=20, random_state=random_state)
@@ -74,8 +110,15 @@ def calcular_wcss(Xs: np.ndarray, k_min: int = 2, k_max: int = 10, random_state:
 
 def get_numero_otimo_clusters(wcss: list[float], k_min: int = 2, k_max: int = 10) -> int:
     """
-    Knee detection por distância à reta.
-    wcss deve corresponder a k_min..k_max.
+    Calcula a maior distância perpendicular entre a curva WCSS e a reta que liga o primeiro e o último ponto (Knee/Elbow detection).
+
+    Args:
+        wcss (list[float]): Lista de inércias calculada por calcular_wcss.
+        k_min (int): O k inicial correspondente ao primeiro elemento da lista wcss.
+        k_max (int): O k final correspondente ao último elemento.
+
+    Returns:
+        int: O valor ótimo de k.
     """
     x1, y1 = k_min, wcss[0]
     x2, y2 = k_max, wcss[-1]
@@ -98,10 +141,21 @@ def cluster_rfm_joint(
     max_iter: int = 300,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    KMeans conjunto no espaço padronizado (R_inv, F_log, M_log).
-    Retorna:
-    - rfm_clustered: tabela por cliente com ClusterId e ScoreComposto
-    - cluster_profile: perfil agregado por cluster (insumo p/ LLM)
+    Executa o pipeline completo de clusterização:
+    1. Gera features transformadas.
+    2. Aplica K-Means.
+    3. Calcula um ScoreComposto para ranquear os clusters do pior para o melhor.
+    4. Gera estatísticas descritivas para cada cluster.
+
+    Args:
+        rfm (pd.DataFrame): Tabela RFM base.
+        n_clusters (int): Número de clusters desejado.
+        random_state (int): Seed.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]:
+            - enriched: DataFrame detalhado por cliente, com ClusterId e Rank.
+            - prof_display: DataFrame agregado com médias/medianas por cluster.
     """
     Xs, enriched = build_rfm_features(rfm)
 
@@ -109,7 +163,7 @@ def cluster_rfm_joint(
     cluster_id = km.fit_predict(Xs)
     enriched["ClusterId"] = cluster_id
 
-    # Score composto (maior = melhor) no espaço padronizado
+    # Score composto
     enriched["ScoreComposto"] = Xs.sum(axis=1)
 
     # Perfil por cluster
@@ -128,7 +182,7 @@ def cluster_rfm_joint(
         .reset_index()
     )
 
-    # Ordena clusters por ScoreComposto_medio (pior -> melhor)
+    # Ordena clusters por ScoreComposto_medio
     prof = prof.sort_values("ScoreComposto_medio", ascending=True).reset_index(drop=True)
     prof["RankQualidade"] = np.arange(len(prof))  # 0 pior, k-1 melhor
     total = prof["Clientes"].sum()
@@ -137,7 +191,7 @@ def cluster_rfm_joint(
     # junta o rank para cada cliente
     enriched = enriched.merge(prof[["ClusterId", "RankQualidade"]], on="ClusterId", how="left")
 
-    # Limpa colunas auxiliares internas de features (mantém se quiser debug)
+    # Limpa colunas auxiliares internas de features
     enriched = enriched.drop(columns=["R_inv", "F_log", "M_log"], errors="ignore")
 
     # Reordena colunas principais
