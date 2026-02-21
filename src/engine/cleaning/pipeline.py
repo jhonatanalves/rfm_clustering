@@ -15,7 +15,7 @@ def apply_autoclean(
     - outliers: "winz" | "delete" | "median" | False
     """
 
-    # Mapeamento da estratégia geral para (numérico, categórico)
+    # Mapeamento da estratégia geral para numérico e categórico
     if imputacao == "median":
         missing_num = "median"
         missing_categ = "most_frequent"
@@ -38,7 +38,6 @@ def apply_autoclean(
         missing_num = False
         missing_categ = False
     else:
-        # Fallback seguro
         missing_num = "median"
         missing_categ = "most_frequent"
 

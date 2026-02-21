@@ -1,54 +1,41 @@
-from __future__ import annotations
-
-from typing import Any, Optional
-
-from openai import OpenAI
-from openai import APIError, AuthenticationError, RateLimitError
-
-from src.integrations.llm.core import run_with_json_retries, RetryConfig, LLMParseError
-from src.integrations.llm.domain import repair_prompt_for_invalid_json
-from src.integrations.llm.providers.base import ProviderConfig
+import openai
+from src.integrations.llm.providers.base import BaseProvider, ProviderConfig
+from src.integrations.llm.core import run_with_json_retries
 from src.integrations.llm.prompts import SYSTEM_PROMPT_JSON_ENV
 
-
-
-class OpenAIProvider:
-
+class OpenAIProvider(BaseProvider):
+    """Implementação do provedor OpenAI (ChatGPT)."""
     def __init__(self, config: ProviderConfig):
-        self._client = OpenAI(api_key=config.api_key)
+        super().__init__(config)
+        self.client = openai.OpenAI(api_key=config.api_key)
 
     def list_models(self) -> list[str]:
         try:
-            models = self._client.models.list()
-            names = [m.id for m in models.data]
-            return sorted(set(names))
+            # A API retorna apenas modelos acessíveis pela API Key.
+            # Filtra por "gpt" para trazer apenas modelos de chat compatíveis.
+            models = self.client.models.list()
+            return sorted([m.id for m in models.data if m.id.startswith("gpt")])
         except Exception:
-            return []
+            return ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o"]
 
-    def _call_text(self, model: str, prompt: str, temperature: float) -> str:
-
-        resp = self._client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_JSON_ENV},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=temperature,
-        )
-        return (resp.choices[0].message.content or "").strip()
-
-    def generate_json(self, model: str, prompt: str, temperature: float = 0.2) -> dict[str, Any]:
+    def generate_text(self, model: str, prompt: str, temperature: float, max_tokens: int, timeout: float) -> str:
         try:
-            return run_with_json_retries(
-                call_model=lambda p: self._call_text(model, p, temperature),
-                prompt=prompt,
-                retry=RetryConfig(max_attempts=2, repair_prompt_builder=repair_prompt_for_invalid_json),
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_JSON_ENV},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout
             )
-        except AuthenticationError as e:
-            raise RuntimeError("OpenAI: chave inválida ou sem permissão para o projeto/modelo.") from e
-        except RateLimitError as e:
-            raise RuntimeError("OpenAI: rate limit atingido (muitas requisições).") from e
-        except APIError as e:
-            raise RuntimeError(f"OpenAI APIError: {e}") from e
-        except LLMParseError as e:
-            raise RuntimeError(f"Falha ao decodificar JSON da LLM (OpenAI): {e}") from e
+            return response.choices[0].message.content
+        except openai.APITimeoutError:
+            raise TimeoutError(f"OpenAI: Tempo limite excedido ({timeout}s).")
+
+    def generate_json(self, model: str, prompt: str, temperature: float, max_tokens: int, timeout: float) -> dict:
+        def call_model(p: str) -> str:
+            return self.generate_text(model, p, temperature, max_tokens, timeout)
+
+        return run_with_json_retries(call_model, prompt)

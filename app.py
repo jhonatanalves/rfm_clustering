@@ -9,18 +9,35 @@ from src.engine.clustering import (
     get_numero_otimo_clusters,
     cluster_rfm_joint,
 )
-from src.integrations.llm.domain import build_cluster_naming_prompt, build_cluster_labels
+from src.integrations.llm.domain import build_cluster_naming_prompt, orchestrate_cluster_labeling, LLMInputTooLargeError
 from src.engine.cleaning.pipeline import apply_autoclean
 
 
 @st.cache_data(show_spinner="Carregando dados...")
 def load_data(uploaded_file):
-    """Carrega o CSV e faz cache para evitar recarregamento a cada interação."""
+    """
+    Carrega o CSV e faz cache para evitar recarregamento a cada interação.
+
+    Args:
+        uploaded_file: Objeto de arquivo retornado pelo st.file_uploader.
+
+    Returns:
+        pd.DataFrame: DataFrame carregado do CSV.
+    """
     return pd.read_csv(uploaded_file)
 
 
 def validate_mapping_inputs(mapping_data: dict, data_structure: str):
-    """Valida se todos os campos obrigatórios foram preenchidos."""
+    """
+    Valida se todos os campos obrigatórios do mapeamento foram preenchidos.
+
+    Args:
+        mapping_data (dict): Dicionário com o mapeamento das colunas.
+        data_structure (str): Tipo de estrutura de dados ('Dados Transacionais' ou 'Dados Agregados').
+    
+    Returns:
+        None: Interrompe a execução (st.stop) se houver erro.
+    """
     missing_fields = []
     if not mapping_data["customer_col"]: missing_fields.append("Id do cliente")
     if not mapping_data["date_col"]: missing_fields.append("Data da compra")
@@ -38,7 +55,17 @@ def validate_mapping_inputs(mapping_data: dict, data_structure: str):
 
 
 def preprocess_dataframe(df: pd.DataFrame, mapping_data: dict, config: dict) -> pd.DataFrame:
-    """Seleciona colunas, remove nulos e aplica limpeza automática, se configurado."""
+    """
+    Seleciona colunas, remove nulos e aplica limpeza automática (outliers/imputação).
+
+    Args:
+        df (pd.DataFrame): DataFrame original carregado.
+        mapping_data (dict): Configuração de mapeamento de colunas.
+        config (dict): Configurações de limpeza da sidebar.
+
+    Returns:
+        pd.DataFrame: DataFrame limpo e pronto para o cálculo de RFM.
+    """
     cols_to_use = [
         mapping_data["customer_col"],
         mapping_data["date_col"],
@@ -81,7 +108,17 @@ def preprocess_dataframe(df: pd.DataFrame, mapping_data: dict, config: dict) -> 
 
 
 def execute_clustering_pipeline(df_clean: pd.DataFrame, mapping_data: dict, config: dict):
-    """Executa o cálculo de RFM, determina K e realiza aclusterização."""
+    """
+    Executa o cálculo de RFM, determina o número ideal de clusters (K) e realiza a clusterização.
+
+    Args:
+        df_clean (pd.DataFrame): DataFrame pré-processado.
+        mapping_data (dict): Mapeamento de colunas.
+        config (dict): Configurações gerais (K-means, random_state, etc).
+    
+    Returns:
+        None: Atualiza o st.session_state com os resultados ('rfm_out', 'cluster_profile').
+    """
     try:
         rfm_table = build_rfm_table(
             data=df_clean,
@@ -130,7 +167,16 @@ def execute_clustering_pipeline(df_clean: pd.DataFrame, mapping_data: dict, conf
 
 
 def handle_llm_generation(cluster_profile: pd.DataFrame, config: dict):
-    """Gerencia a interação com a LLM para nomeação e explicação dos clusters."""
+    """
+    Gerencia a interação com a LLM para nomeação e explicação dos clusters.
+
+    Args:
+        cluster_profile (pd.DataFrame): DataFrame com o perfil agregado dos clusters.
+        config (dict): Configurações da LLM (provider, api_key, model).
+    
+    Returns:
+        None: Atualiza o st.session_state['cluster_labels'] com os resultados.
+    """
     st.header(f"🤖 Nomear e explicar clusters ({config['provider_name']})")
 
     if not config["api_key"] or not config["model"]:
@@ -139,24 +185,24 @@ def handle_llm_generation(cluster_profile: pd.DataFrame, config: dict):
 
     if st.button("Gerar nomes e estratégias (LLM)", type="primary"):
         business_context = st.session_state.get("business_context", "")
-        prompt = build_cluster_naming_prompt(cluster_profile, business_context)
-
-        with st.expander("🔎 Prompt enviado (agregados)", expanded=False):
-            st.code(prompt)
+        
+        # Mostra apenas o prompt do primeiro chunk como exemplo para o usuário não ficar confuso
+        preview_prompt = build_cluster_naming_prompt(cluster_profile.head(5), business_context)
+        with st.expander("🔎 Exemplo de Prompt (primeiros 5 clusters)", expanded=False):
+            st.code(preview_prompt)
 
         try:
             provider = sidebar.get_provider(config["provider_name"], config["api_key"])
-            with st.spinner(f"Chamando {config['provider_name']}..."):
-                llm_json = provider.generate_json(
-                    model=config["model"], 
-                    prompt=prompt, 
-                    temperature=config["temperature"]
+            with st.spinner(f"Gerando análises com {config['provider_name']} (processando em lotes)..."):
+                labels_df = orchestrate_cluster_labeling(
+                    provider, cluster_profile, business_context, config["model"], config["temperature"]
                 )
-                labels_df = build_cluster_labels(cluster_profile, llm_json)
 
             st.session_state["cluster_labels"] = labels_df
             st.success("Rótulos gerados com sucesso!")
 
+        except LLMInputTooLargeError:
+            st.error("Dados muito grandes para análise automática. Tente reduzir o número de clusters (k) ou usar uma base menor.")
         except Exception as e:
             st.error(f"Falha na geração de rótulos: {e}")
 

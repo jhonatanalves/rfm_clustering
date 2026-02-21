@@ -5,7 +5,12 @@ from src.integrations.llm.providers.openai_provider import OpenAIProvider
 
 
 def init_session_state():
-    """Inicializa variáveis de estado do Streamlit."""
+    """
+    Inicializa variáveis de estado do Streamlit se ainda não existirem.
+
+    Returns:
+        None: Modifica o st.session_state in-place.
+    """
     defaults = {
         "rfm_out": None,
         "cluster_profile": None,
@@ -21,7 +26,16 @@ def init_session_state():
 
 
 def get_provider(provider_name: str, api_key: str):
-    """Factory para instanciar provider."""
+    """
+    Factory para instanciar o provedor de LLM correto.
+
+    Args:
+        provider_name (str): Nome do provedor ('Gemini' ou 'ChatGPT').
+        api_key (str): Chave de API para autenticação.
+
+    Returns:
+        object: Instância do provedor configurado (GeminiProvider ou OpenAIProvider).
+    """
     cfg = ProviderConfig(api_key=api_key)
     if provider_name == "Gemini":
         return GeminiProvider(cfg)
@@ -32,7 +46,12 @@ def get_provider(provider_name: str, api_key: str):
 
 
 def render_sidebar():
-    """Renderiza a barra lateral e retorna as configurações."""
+    """
+    Renderiza a barra lateral de configuração e retorna os parâmetros selecionados.
+
+    Returns:
+        dict: Dicionário contendo todas as configurações (upload, limpeza, clusterização, LLM).
+    """
     with st.sidebar:
         st.header("📂 Carregamento dos Dados")
         up = st.file_uploader(
@@ -51,7 +70,7 @@ def render_sidebar():
         st.divider()
         st.subheader("🧹 Limpeza dos Dados")
         
-        # Configurações padrão (sempre ativas)
+        # Configurações padrão 
         auto_clean = True
         clean_duplicates = True
 

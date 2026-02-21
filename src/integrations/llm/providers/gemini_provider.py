@@ -1,46 +1,47 @@
-from __future__ import annotations
+import google.generativeai as genai
+from src.integrations.llm.providers.base import BaseProvider, ProviderConfig
+from src.integrations.llm.core import run_with_json_retries
 
-from typing import Any
-
-from google import genai
-from google.genai import errors as genai_errors
-
-from src.integrations.llm.core import run_with_json_retries, RetryConfig, LLMParseError
-from src.integrations.llm.domain import repair_prompt_for_invalid_json
-from src.integrations.llm.providers.base import ProviderConfig
-from src.integrations.llm.prompts import SYSTEM_PROMPT_JSON_ENV
-
-
-class GeminiProvider:
+class GeminiProvider(BaseProvider):
+    """Implementação do provedor Google Gemini."""
     def __init__(self, config: ProviderConfig):
-        self._client = genai.Client(api_key=config.api_key)
+        super().__init__(config)
+        genai.configure(api_key=config.api_key)
 
     def list_models(self) -> list[str]:
-        models: list[str] = []
-        for m in self._client.models.list():
-            if hasattr(m, "supported_actions") and "generateContent" in m.supported_actions:
-                models.append(m.name.replace("models/", ""))
-        return sorted(set(models))
-
-    def _call_text(self, model: str, prompt: str, temperature: float) -> str:
-        resp = self._client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config={
-                "temperature": temperature,
-                "system_instruction": SYSTEM_PROMPT_JSON_ENV,
-            },
-        )
-        return (getattr(resp, "text", "") or "").strip()
-
-    def generate_json(self, model: str, prompt: str, temperature: float = 0.2) -> dict[str, Any]:
         try:
-            return run_with_json_retries(
-                call_model=lambda p: self._call_text(model, p, temperature),
-                prompt=prompt,
-                retry=RetryConfig(max_attempts=2, repair_prompt_builder=repair_prompt_for_invalid_json),
+            # genai.list_models() usa a chave configurada para listar o que está disponível.
+            models = genai.list_models()
+            return sorted([
+                m.name.replace("models/", "") 
+                for m in models 
+                if "generateContent" in m.supported_generation_methods
+            ])
+        except Exception:
+            return ["gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+
+    def generate_text(self, model: str, prompt: str, temperature: float, max_tokens: int, timeout: float) -> str:
+        generation_config = genai.GenerationConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens
+        )
+        
+        model_instance = genai.GenerativeModel(model)
+        
+        try:
+            response = model_instance.generate_content(
+                prompt,
+                generation_config=generation_config,
+                request_options={"timeout": timeout}
             )
-        except genai_errors.ClientError as e:
-            raise RuntimeError(f"Gemini ClientError: {e}") from e
-        except LLMParseError as e:
-            raise RuntimeError(f"Falha ao decodificar JSON da LLM (Gemini): {e}") from e
+            return response.text
+        except Exception as e:
+            if "deadline" in str(e).lower() or "timeout" in str(e).lower():
+                raise TimeoutError(f"Gemini: Tempo limite excedido ({timeout}s).")
+            raise e
+
+    def generate_json(self, model: str, prompt: str, temperature: float, max_tokens: int, timeout: float) -> dict:
+        def call_model(p: str) -> str:
+            return self.generate_text(model, p, temperature, max_tokens, timeout)
+
+        return run_with_json_retries(call_model, prompt)

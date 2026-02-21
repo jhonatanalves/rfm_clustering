@@ -35,7 +35,7 @@ class AutoCleaner:
     def _set_auto_defaults(self):
         """Define estratégias seguras para o modo totalmente automático."""
         if self.outliers == 'auto':
-            self.outliers = 'winz'  # Winsorization é mais seguro que deletar
+            self.outliers = 'winz'  
         if self.missing_num == 'auto':
             self.missing_num = 'median'
         if self.missing_categ == 'auto':
@@ -51,7 +51,7 @@ class AutoCleaner:
         if self.duplicates:
             df = df.drop_duplicates()
 
-        # 2. Missing Values
+        # 2. Valores ausentes
         df = self._handle_missing(df)
 
         # 3. Outliers (apenas em colunas numéricas)
@@ -61,6 +61,7 @@ class AutoCleaner:
         return df
 
     def _handle_missing(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aplica estratégias de imputação para dados numéricos e categóricos."""
         # Identificar colunas
         num_cols = df.select_dtypes(include=[np.number]).columns
         cat_cols = df.select_dtypes(exclude=[np.number]).columns
@@ -83,7 +84,7 @@ class AutoCleaner:
                 imputer = IterativeImputer(estimator=BayesianRidge(), random_state=42)
                 df[num_cols] = imputer.fit_transform(df[num_cols])
 
-        # --- Tratamento Categórico ---
+        # --- Tratamento de colunas categóricas ---
         if self.missing_categ and len(cat_cols) > 0:
             if self.missing_categ == 'delete':
                 df = df.dropna(subset=cat_cols)
@@ -93,16 +94,9 @@ class AutoCleaner:
                 df[cat_cols] = imputer.fit_transform(df[cat_cols])
             
             elif self.missing_categ in ['knn', 'logreg']:
-                # Para KNN/LogReg em categóricos, precisamos codificar -> imputar -> decodificar
-                # Nota: Isso é computacionalmente custoso.
-                
-                # 1. Codificar (Ordinal) preservando NaNs
+                # Para KNN/LogReg em categóricos, precisamos: codificar -> imputar -> decodificar
                 encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=np.nan)
                 
-                # Precisamos tratar os NaNs manualmente no encoder pois o OrdinalEncoder padrão não ignora NaNs na entrada facilmente em versões antigas
-                # Uma abordagem robusta: preencher temporariamente, fitar, e depois recolocar NaN onde era NaN original
-                # Simplificação: Usar Pandas factorize ou map, mas OrdinalEncoder é melhor para pipeline.
-                # Vamos usar uma abordagem híbrida segura:
                 
                 df_cat_encoded = df[cat_cols].copy()
                 encoders = {}
@@ -114,20 +108,17 @@ class AutoCleaner:
                     encoders[col] = {i: val for val, i in mapping.items()} # reverso
                     df_cat_encoded[col] = df[col].map(mapping) # NaNs permanecem NaNs
 
-                # 2. Imputar
                 if self.missing_categ == 'knn':
                     imputer = KNNImputer(n_neighbors=5)
-                else: # logreg
-                    # IterativeImputer funciona para regressão, mas pode ser usado para classificação se arredondarmos
+                else: 
                     imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=10, random_state=42)
                 
                 imputed_data = imputer.fit_transform(df_cat_encoded)
                 df_cat_encoded = pd.DataFrame(imputed_data, columns=cat_cols, index=df.index)
 
-                # 3. Decodificar (arredondando para o inteiro mais próximo)
+                # Decodificar (arredondando para o inteiro mais próximo)
                 for col in cat_cols:
                     df_cat_encoded[col] = df_cat_encoded[col].round().astype(int)
-                    # Clip para garantir que está dentro dos limites do encoder
                     max_val = max(encoders[col].keys()) if encoders[col] else 0
                     df_cat_encoded[col] = df_cat_encoded[col].clip(0, max_val)
                     df[col] = df_cat_encoded[col].map(encoders[col])
@@ -135,6 +126,7 @@ class AutoCleaner:
         return df
 
     def _handle_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Trata outliers em colunas numéricas usando IQR ou Winsorization."""
         num_cols = df.select_dtypes(include=[np.number]).columns
         
         for col in num_cols:
@@ -147,13 +139,11 @@ class AutoCleaner:
                 df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
             
             elif self.outliers == 'winz':
-                # Winsorization: limita os extremos aos percentis 5% e 95%
                 lower = df[col].quantile(0.05)
                 upper = df[col].quantile(0.95)
                 df[col] = df[col].clip(lower=lower, upper=upper)
             
             elif self.outliers == 'median':
-                # Identifica via IQR e substitui pela mediana
                 Q1 = df[col].quantile(0.25)
                 Q3 = df[col].quantile(0.75)
                 IQR = Q3 - Q1

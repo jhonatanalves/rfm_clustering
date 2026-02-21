@@ -3,7 +3,16 @@ import streamlit as st
 
 
 def _render_mapping_form(df: pd.DataFrame, data_structure: str) -> tuple[dict, bool]:
-    """Renderiza o formulário de seleção de colunas."""
+    """
+    Renderiza o formulário de seleção de colunas.
+
+    Args:
+        df (pd.DataFrame): DataFrame carregado.
+        data_structure (str): Tipo de estrutura ('Dados Transacionais' ou 'Dados Agregados').
+
+    Returns:
+        tuple[dict, bool]: Dicionário com as colunas selecionadas e booleano indicando submissão.
+    """
     cols = df.columns.tolist()
     
     with st.form("mapping_form"):
@@ -34,7 +43,16 @@ def _render_mapping_form(df: pd.DataFrame, data_structure: str) -> tuple[dict, b
 
 
 def _render_filter_form(df: pd.DataFrame, approved_col: str) -> tuple[list[str], bool]:
-    """Renderiza o formulário de seleção de status (filtros)."""
+    """
+    Renderiza o formulário de seleção de status (filtros).
+
+    Args:
+        df (pd.DataFrame): DataFrame carregado.
+        approved_col (str): Nome da coluna que contém os status.
+
+    Returns:
+        tuple[list[str], bool]: Lista de valores selecionados e booleano indicando execução.
+    """
     with st.form("filter_form"):
         st.write("Configuração de Filtros")
         
@@ -61,7 +79,16 @@ def _render_filter_form(df: pd.DataFrame, approved_col: str) -> tuple[list[str],
 
 
 def render_column_mapping(df: pd.DataFrame, data_structure: str):
-    """Função principal que orquestra a renderização dos formulários de mapeamento."""
+    """
+    Função principal que orquestra a renderização dos formulários de mapeamento e filtros.
+
+    Args:
+        df (pd.DataFrame): DataFrame carregado.
+        data_structure (str): Tipo de estrutura de dados.
+
+    Returns:
+        dict: Configuração completa contendo colunas mapeadas, valores de filtro e flag de execução.
+    """
     with st.container(border=True):
         st.subheader("Mapeamento de colunas")
 
@@ -70,7 +97,7 @@ def render_column_mapping(df: pd.DataFrame, data_structure: str):
         approved_values = []
         run_pipeline = False
 
-        # Só mostramos a seleção de valores e o botão de execução se as colunas estiverem definidas
+        # Mostr a seleção de valores e o botão de execução se as colunas estiverem definidas
         if (mapping_inputs["customer_col"] and 
             mapping_inputs["date_col"] and 
             mapping_inputs["monetary_col"] and 

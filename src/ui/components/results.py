@@ -9,11 +9,25 @@ from src.ui.visualization.charts import render_scatter_grid
 
 
 def render_data_preview(df: pd.DataFrame):
+    """
+    Exibe uma prévia das primeiras linhas do dataset.
+
+    Args:
+        df (pd.DataFrame): DataFrame carregado.
+    """
     st.subheader("Prévia do dataset")
     st.dataframe(df.head(20), use_container_width=True, hide_index=True)
 
 
 def render_results(rfm_out, cluster_profile):
+    """
+    Renderiza as tabelas de resultados (perfil dos clusters e lista de clientes)
+    e os botões de download.
+
+    Args:
+        rfm_out (pd.DataFrame): DataFrame com dados RFM e ClusterId por cliente.
+        cluster_profile (pd.DataFrame): DataFrame com médias/agregados por cluster.
+    """
     st.subheader("Perfil dos clusters agregado")
     st.dataframe(cluster_profile, use_container_width=True, hide_index=True)
 
@@ -40,6 +54,9 @@ def render_cluster_charts(rfm_df: pd.DataFrame):
     """
     Renderiza gráficos para análise técnica dos clusters (Boxplots e 3D),
     úteis antes da nomeação via LLM.
+
+    Args:
+        rfm_df (pd.DataFrame): DataFrame contendo métricas RFM e ClusterId.
     """
     tab1, tab2, tab3 = st.tabs(["📦 Distribuição (Boxplots)", "🧊 Visualização 3D", "📍 Dispersão 2D"])
 
@@ -88,6 +105,14 @@ def render_cluster_charts(rfm_df: pd.DataFrame):
             st.plotly_chart(fig_rr, use_container_width=True)
 
 def render_llm_results(rfm_out, cluster_profile, labels_df):
+    """
+    Renderiza os resultados enriquecidos pela LLM (nomes, descrições e estratégias).
+
+    Args:
+        rfm_out (pd.DataFrame): Dados RFM por cliente.
+        cluster_profile (pd.DataFrame): Perfil agregado dos clusters.
+        labels_df (pd.DataFrame): DataFrame retornado pela LLM com nomes e descrições.
+    """
     rfm_named = rfm_out.merge(labels_df, on="ClusterId", how="left")
     prof_named = cluster_profile.merge(labels_df, on="ClusterId", how="left")
 
