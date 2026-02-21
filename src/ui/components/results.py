@@ -5,7 +5,7 @@ try:
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
-from visualization.charts import render_scatter_grid
+from src.ui.visualization.charts import render_scatter_grid
 
 
 def render_data_preview(df: pd.DataFrame):

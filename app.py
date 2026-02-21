@@ -1,16 +1,22 @@
 import pandas as pd
 import streamlit as st
 
-from components import sidebar, mapping, results
+from src.ui.components import sidebar, mapping, results
 
-from rfm import (
-    build_rfm_table,
+from src.engine.calculator import build_rfm_table
+from src.engine.clustering import (
     calcular_wcss,
     get_numero_otimo_clusters,
     cluster_rfm_joint,
 )
-from llm.domain import build_cluster_naming_prompt, build_cluster_labels
-from cleaning.pipeline import apply_autoclean
+from src.integrations.llm.domain import build_cluster_naming_prompt, build_cluster_labels
+from src.engine.cleaning.pipeline import apply_autoclean
+
+
+@st.cache_data(show_spinner="Carregando dados...")
+def load_data(uploaded_file):
+    """Carrega o CSV e faz cache para evitar recarregamento a cada interação."""
+    return pd.read_csv(uploaded_file)
 
 
 def validate_mapping_inputs(mapping_data: dict, data_structure: str):
@@ -20,7 +26,7 @@ def validate_mapping_inputs(mapping_data: dict, data_structure: str):
     if not mapping_data["date_col"]: missing_fields.append("Data da compra")
     if not mapping_data["monetary_col"]: missing_fields.append("Valor da compra")
     if not mapping_data["approved_col"]: missing_fields.append("Status do Pedido")
-    if data_structure.startswith("Itens") and not mapping_data["order_col"]: missing_fields.append("ID do Pedido")
+    if data_structure == "Dados Transacionais" and not mapping_data["order_col"]: missing_fields.append("ID do Pedido")
     
     if missing_fields:
         st.error(f"Por favor, preencha os seguintes campos obrigatórios: {', '.join(missing_fields)}")
@@ -51,7 +57,10 @@ def preprocess_dataframe(df: pd.DataFrame, mapping_data: dict, config: dict) -> 
 
     if config["auto_clean"]:
         if config["clean_duplicates"]:
+            rows_before = len(df_clean)
             df_clean = df_clean.drop_duplicates()
+            if len(df_clean) < rows_before:
+                st.toast(f"Limpeza: {rows_before - len(df_clean)} registros duplicados removidos.", icon="🗑️")
 
         monetary_col = mapping_data["monetary_col"]
         
@@ -94,7 +103,7 @@ def execute_clustering_pipeline(df_clean: pd.DataFrame, mapping_data: dict, conf
             st.stop()
 
         if chosen_k is None:
-            from rfm import build_rfm_features  
+            from src.engine.clustering import build_rfm_features
             Xs, _ = build_rfm_features(rfm_table)
             
             safe_k_max = min(10, len(rfm_table) - 1)
@@ -165,7 +174,7 @@ def main():
         st.info("Faça upload de um CSV para começar.")
         st.stop()
 
-    df = pd.read_csv(config["up"])
+    df = load_data(config["up"])
     with st.container(border=True):
         results.render_data_preview(df)
 

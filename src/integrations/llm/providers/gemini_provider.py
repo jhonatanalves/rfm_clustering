@@ -5,10 +5,10 @@ from typing import Any
 from google import genai
 from google.genai import errors as genai_errors
 
-from llm.core import run_with_json_retries, RetryConfig, LLMParseError
-from llm.domain import repair_prompt_for_invalid_json
-from llm.providers.base import ProviderConfig
-from llm.prompts import SYSTEM_PROMPT_JSON_ENV
+from src.integrations.llm.core import run_with_json_retries, RetryConfig, LLMParseError
+from src.integrations.llm.domain import repair_prompt_for_invalid_json
+from src.integrations.llm.providers.base import ProviderConfig
+from src.integrations.llm.prompts import SYSTEM_PROMPT_JSON_ENV
 
 
 class GeminiProvider:

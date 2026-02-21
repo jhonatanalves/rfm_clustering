@@ -5,10 +5,11 @@ from typing import Any, Optional
 from openai import OpenAI
 from openai import APIError, AuthenticationError, RateLimitError
 
-from llm.core import run_with_json_retries, RetryConfig, LLMParseError
-from llm.domain import repair_prompt_for_invalid_json
-from llm.providers.base import ProviderConfig
-from llm.prompts import SYSTEM_PROMPT_JSON_ENV
+from src.integrations.llm.core import run_with_json_retries, RetryConfig, LLMParseError
+from src.integrations.llm.domain import repair_prompt_for_invalid_json
+from src.integrations.llm.providers.base import ProviderConfig
+from src.integrations.llm.prompts import SYSTEM_PROMPT_JSON_ENV
+
 
 
 class OpenAIProvider:

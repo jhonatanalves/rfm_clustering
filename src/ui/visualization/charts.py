@@ -9,12 +9,10 @@ def _segment_col(rfm_df: pd.DataFrame) -> str:
 
 def scatter_by_group(rfm_df: pd.DataFrame, x: str, y: str) -> None:
     group_col = _segment_col(rfm_df)
-    groups = rfm_df[group_col].astype(str).unique().tolist()
 
     fig, ax = plt.subplots()
-    for g in groups:
-        part = rfm_df[rfm_df[group_col].astype(str) == str(g)]
-        ax.scatter(part[x], part[y], label=str(g), alpha=0.7)
+    for name, group in rfm_df.groupby(rfm_df[group_col].astype(str)):
+        ax.scatter(group[x], group[y], label=name, alpha=0.7)
     ax.set_xlabel(x)
     ax.set_ylabel(y)
     ax.legend()

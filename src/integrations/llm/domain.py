@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from llm.prompts import CLUSTER_ANALYSIS_TEMPLATE, JSON_REPAIR_TEMPLATE
+from src.integrations.llm.prompts import CLUSTER_ANALYSIS_TEMPLATE, JSON_REPAIR_TEMPLATE
 
 class DomainValidationError(ValueError):
     """Erro de validação do JSON no domínio de clusters."""

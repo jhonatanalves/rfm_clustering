@@ -1,5 +1,5 @@
 import pandas as pd
-from cleaning.auto_cleaner import AutoCleaner
+from src.engine.cleaning.auto_cleaner import AutoCleaner
 
 def apply_autoclean(
     df: pd.DataFrame,

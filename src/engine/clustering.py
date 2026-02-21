@@ -5,68 +5,14 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
-def build_rfm_table(
-    data: pd.DataFrame,
-    customer_col: str,
-    date_col: str,
-    monetary_col: str,
-    order_col: str | None,
-    approved_col: str | None,
-    approved_values: list[str],
-) -> pd.DataFrame:
-    """
-    Converte o DataFrame de transações brutas em uma tabela RFM (Recência, Frequência, Receita) por cliente.
-
-    Args:
-        data (pd.DataFrame): DataFrame original com as transações.
-        customer_col (str): Nome da coluna de ID do cliente.
-        date_col (str): Nome da coluna de data.
-        monetary_col (str): Nome da coluna de valor monetário.
-        order_col (str | None): Nome da coluna de ID do pedido. Se None, conta linhas como frequência.
-        approved_col (str | None): Nome da coluna de status do pedido.
-        approved_values (list[str]): Lista de status considerados válidos para o cálculo.
-
-    Returns:
-        pd.DataFrame: DataFrame contendo ['Cliente', 'Recencia', 'Frequencia', 'Receita'].
-    """
-    df = data.copy()
-
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    df = df.dropna(subset=[customer_col, date_col])
-
-    if approved_col and approved_values:
-        df = df[df[approved_col].astype(str).isin([str(v) for v in approved_values])]
-
-    df[monetary_col] = pd.to_numeric(df[monetary_col], errors="coerce").fillna(0)
-
-    # Recência
-    last_buy = df.groupby(customer_col)[date_col].max().reset_index()
-    ref_date = last_buy[date_col].max()
-    last_buy["Recencia"] = (ref_date - last_buy[date_col]).dt.days
-    last_buy = last_buy[[customer_col, "Recencia"]]
-
-    # Frequência
-    if order_col:
-        freq = df.groupby(customer_col)[order_col].nunique().reset_index(name="Frequencia")
-    else:
-        freq = df.groupby(customer_col).size().reset_index(name="Frequencia")
-
-    # Receita
-    rev = df.groupby(customer_col)[monetary_col].sum().reset_index(name="Receita")
-
-    rfm = last_buy.merge(freq, on=customer_col).merge(rev, on=customer_col)
-    rfm = rfm.rename(columns={customer_col: "Cliente"})
-    return rfm
-
-
 def build_rfm_features(rfm: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
     """
     Prepara as features matemáticas para o algoritmo de clusterização (K-Means).
     
     Transformações aplicadas:
-    1. Inversão da Recência (R_inv = -Recencia): Para que valores maiores indiquem "melhor" cliente, alinhando com Frequência e Receita.
-    2. Logaritmo (log1p) em Frequência e Receita: Para reduzir a assimetria (skewness) comum em dados financeiros.
-    3. Padronização (StandardScaler): Para colocar todas as variáveis na mesma escala (média 0, desvio padrão 1).
+    1. Inversão da Recência (R_inv = -Recencia).
+    2. Logaritmo (log1p) em Frequência e Receita.
+    3. Padronização (StandardScaler).
 
     Args:
         rfm (pd.DataFrame): Tabela RFM base.
@@ -88,17 +34,7 @@ def build_rfm_features(rfm: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
 
 def calcular_wcss(Xs: np.ndarray, k_min: int = 2, k_max: int = 10, random_state: int = 42) -> list[float]:
     """
-    Calcula a inércia para diferentes valores de k.
-    Utilizado para gerar o gráfico do cotovelo.
-
-    Args:
-        Xs (np.ndarray): Matriz de features padronizadas.
-        k_min (int): Valor mínimo de k a testar.
-        k_max (int): Valor máximo de k a testar.
-        random_state (int): Semente aleatória para reprodutibilidade.
-
-    Returns:
-        list[float]: Lista contendo os valores de inércia para cada k.
+    Calcula a inércia para diferentes valores de k (Elbow Method).
     """
     wcss = []
     for k in range(k_min, k_max + 1):
@@ -110,15 +46,7 @@ def calcular_wcss(Xs: np.ndarray, k_min: int = 2, k_max: int = 10, random_state:
 
 def get_numero_otimo_clusters(wcss: list[float], k_min: int = 2, k_max: int = 10) -> int:
     """
-    Calcula a maior distância perpendicular entre a curva WCSS e a reta que liga o primeiro e o último ponto (Knee/Elbow detection).
-
-    Args:
-        wcss (list[float]): Lista de inércias calculada por calcular_wcss.
-        k_min (int): O k inicial correspondente ao primeiro elemento da lista wcss.
-        k_max (int): O k final correspondente ao último elemento.
-
-    Returns:
-        int: O valor ótimo de k.
+    Calcula a maior distância perpendicular entre a curva WCSS e a reta (Knee/Elbow detection).
     """
     x1, y1 = k_min, wcss[0]
     x2, y2 = k_max, wcss[-1]
@@ -144,18 +72,8 @@ def cluster_rfm_joint(
     Executa o pipeline completo de clusterização:
     1. Gera features transformadas.
     2. Aplica K-Means.
-    3. Calcula um ScoreComposto para ranquear os clusters do pior para o melhor.
-    4. Gera estatísticas descritivas para cada cluster.
-
-    Args:
-        rfm (pd.DataFrame): Tabela RFM base.
-        n_clusters (int): Número de clusters desejado.
-        random_state (int): Seed.
-
-    Returns:
-        tuple[pd.DataFrame, pd.DataFrame]:
-            - enriched: DataFrame detalhado por cliente, com ClusterId e Rank.
-            - prof_display: DataFrame agregado com médias/medianas por cluster.
+    3. Calcula um ScoreComposto para ranquear os clusters.
+    4. Gera estatísticas descritivas.
     """
     Xs, enriched = build_rfm_features(rfm)
 
