@@ -6,9 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from src.observability.logger import get_logger
 
 class LLMParseError(RuntimeError):
     """Erro ao converter a resposta da LLM em JSON utilizável."""
+
+class LLMTokenLimitExceededError(RuntimeError):
+    """Erro específico quando a LLM interrompe a geração por atingir o limite de tokens."""
 
 
 def strip_code_fences(text: str) -> str:
@@ -97,6 +101,14 @@ class RetryConfig:
     repair_prompt_builder: Optional[Callable[[str, str], str]] = None
 
 
+def _log_snippet(text: str) -> str:
+    """Helper para logar head/tail de strings longas."""
+    if len(text) <= 1600:
+        return text
+    head = text[:800]
+    tail = text[-800:]
+    return f"{head} ... [skipped {len(text)-1600} chars] ... {tail}"
+
 def run_with_json_retries(
     call_model: Callable[[str], str],
     prompt: str,
@@ -107,15 +119,30 @@ def run_with_json_retries(
 
     repair_prompt_builder(original_prompt, last_response_text) -> new_prompt
     """
+    logger = get_logger("llm.core")
     retry = retry or RetryConfig()
     last_text = ""
 
     for attempt in range(1, retry.max_attempts + 1):
+        logger.info(f"Tentativa {attempt}/{retry.max_attempts} de geração JSON. Len(prompt)={len(prompt)}")
         last_text = call_model(prompt)
+        
+        if not last_text:
+            logger.warning(f"Tentativa {attempt}: Resposta vazia (None ou string vazia) recebida do provider.")
+            last_text = "" # Garante string para o log abaixo
+        
+        # Log debug apenas se sucesso, warning detalhado se falha (abaixo)
+        logger.info(f"Raw response:\n{last_text}")
+
         try:
             return parse_llm_json(last_text)
-        except LLMParseError:
+        except LLMParseError as e:
+            snippet = _log_snippet(last_text)
+            logger.warning(f"Falha no parse JSON (Tentativa {attempt}). Len(response)={len(last_text)}. Erro: {e}")
+            logger.warning(f"Conteúdo Raw (Head/Tail):\n{snippet}")
+            
             if attempt >= retry.max_attempts:
+                logger.error("Esgotadas tentativas de reparo JSON.")
                 raise
             if retry.repair_prompt_builder:
                 prompt = retry.repair_prompt_builder(prompt, last_text)

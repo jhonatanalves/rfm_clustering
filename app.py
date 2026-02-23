@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from uuid import uuid4
 
 from src.ui.components import sidebar, mapping, results
 
@@ -10,7 +11,9 @@ from src.engine.clustering import (
     cluster_rfm_joint,
 )
 from src.integrations.llm.domain import build_cluster_naming_prompt, orchestrate_cluster_labeling, LLMInputTooLargeError
+from src.integrations.llm.core import LLMTokenLimitExceededError, LLMParseError
 from src.engine.cleaning.pipeline import apply_autoclean
+from src.observability.logger import get_logger, set_request_id, reset_request_id
 
 
 @st.cache_data(show_spinner="Carregando dados...")
@@ -186,6 +189,11 @@ def handle_llm_generation(cluster_profile: pd.DataFrame, config: dict):
     if st.button("Gerar nomes e estratégias (LLM)", type="primary"):
         business_context = st.session_state.get("business_context", "")
         
+        # 1. Generate Correlation ID
+        request_id = uuid4().hex[:8]
+        token = set_request_id(request_id)
+        logger = get_logger("app")
+
         # Mostra apenas o prompt do primeiro chunk como exemplo para o usuário não ficar confuso
         preview_prompt = build_cluster_naming_prompt(cluster_profile.head(5), business_context)
         with st.expander("🔎 Exemplo de Prompt (primeiros 5 clusters)", expanded=False):
@@ -194,17 +202,29 @@ def handle_llm_generation(cluster_profile: pd.DataFrame, config: dict):
         try:
             provider = sidebar.get_provider(config["provider_name"], config["api_key"])
             with st.spinner(f"Gerando análises com {config['provider_name']} (processando em lotes)..."):
+                logger.info(f"Iniciando orquestração LLM. Provider: {config['provider_name']}")
                 labels_df = orchestrate_cluster_labeling(
                     provider, cluster_profile, business_context, config["model"], config["temperature"]
                 )
 
             st.session_state["cluster_labels"] = labels_df
             st.success("Rótulos gerados com sucesso!")
+            logger.info("Geração de rótulos concluída com sucesso.")
 
         except LLMInputTooLargeError:
+            logger.warning("Erro: Input muito grande para a LLM.")
             st.error("Dados muito grandes para análise automática. Tente reduzir o número de clusters (k) ou usar uma base menor.")
+        except LLMTokenLimitExceededError:
+            logger.warning("Erro: Limite de tokens excedido na resposta.")
+            st.error("⚠️ A resposta foi cortada pela IA por falta de espaço (tokens). \n\n**Sugestão:** Tente reduzir o número de clusters (k) na barra lateral ou simplifique o contexto do negócio.")
+        except LLMParseError:
+            logger.warning("Erro de Parse JSON (provável resposta incompleta).")
+            st.error("⚠️ A resposta da IA veio incompleta (JSON inválido).\n\nIsso geralmente ocorre quando o limite de tokens é atingido antes do fim da resposta. Tente reduzir o número de clusters.")
         except Exception as e:
-            st.error(f"Falha na geração de rótulos: {e}")
+            logger.error(f"Falha na geração de rótulos: {e}", exc_info=True)
+            st.error(f"Falha na geração de rótulos. ID de diagnóstico: {request_id}")
+        finally:
+            reset_request_id(token)
 
 
 def main():

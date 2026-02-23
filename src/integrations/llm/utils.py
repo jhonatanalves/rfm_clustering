@@ -9,7 +9,7 @@ def chunk_dataframe(df: pd.DataFrame, chunk_size: int = 30) -> list[pd.DataFrame
 
 def estimate_max_output_tokens(n_clusters: int) -> int:
     """
-    Estima o limite de tokens de saída: ~250 tokens por cluster + margem de segurança.
-    Limite máximo fixado em 6000 tokens (seguro para maioria dos modelos modernos).
+    Estima o limite de tokens de saída: ~1000 tokens por cluster + margem de segurança.
+    Limite máximo fixado em 8192 tokens .
     """
-    return min(6000, 250 * n_clusters + 200)
+    return min(10000, 200 * n_clusters + 200)

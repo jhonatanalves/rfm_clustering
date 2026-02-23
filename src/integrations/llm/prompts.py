@@ -45,9 +45,10 @@ JSON_REPAIR_TEMPLATE = """
 O JSON anterior estava inválido ou tinha texto extra.
 
 Regras:
-- Retorne APENAS um JSON válido.
-- Sem markdown, sem explicações, sem texto fora do JSON.
+- Retorne APENAS um JSON válido. NÃO use blocos de código (```json).
+- Sem markdown, sem explicações, sem texto introdutório.
 - O JSON deve seguir EXATAMENTE o formato exigido no prompt original.
+- Comece estritamente com {{ e termine com }}.
 
 Prompt original:
 {original_prompt}

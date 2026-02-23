@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import html
 from collections import Counter
+import time
 from typing import Annotated, Protocol
 
 import pandas as pd
 from pydantic import BaseModel, Field, ValidationError, field_validator, ConfigDict, StringConstraints
 
+from src.observability.logger import get_logger
 from src.integrations.llm.utils import chunk_dataframe, estimate_max_output_tokens
 from src.integrations.llm.prompts import CLUSTER_ANALYSIS_TEMPLATE, JSON_REPAIR_TEMPLATE
 
@@ -166,6 +168,8 @@ def orchestrate_cluster_labeling(
     Returns:
         pd.DataFrame: DataFrame consolidado com todos os rótulos gerados.
     """
+    logger = get_logger("domain.orchestrator")
+    
     all_labels_dfs = []
     
     current_idx = 0
@@ -173,6 +177,8 @@ def orchestrate_cluster_labeling(
     
     BASE_FALLBACK = [30, 20, 10, 5, 3, 1]
     fallback_sizes = [s for s in BASE_FALLBACK if s <= chunk_size]
+
+    logger.info(f"Iniciando processamento. Total clusters: {total_rows}. Chunk inicial: {chunk_size}")
 
     while current_idx < total_rows:
         chunk_success = False
@@ -187,6 +193,9 @@ def orchestrate_cluster_labeling(
                 n_clusters = len(chunk)
                 max_tokens = estimate_max_output_tokens(n_clusters)
                 
+                logger.info(f"Processando chunk {current_idx}-{end_idx} (Size: {size}). Max tokens est: {max_tokens}")
+                
+                start_time = time.time()
                 llm_json = provider.generate_json(
                     model=model,
                     prompt=prompt,
@@ -194,6 +203,8 @@ def orchestrate_cluster_labeling(
                     max_tokens=max_tokens,
                     timeout=30.0
                 )
+                duration = time.time() - start_time
+                logger.info(f"LLM Response recebida. Duração: {duration:.2f}s")
                 
                 chunk_labels = build_cluster_labels(chunk, llm_json)
                 all_labels_dfs.append(chunk_labels)
@@ -203,12 +214,14 @@ def orchestrate_cluster_labeling(
                 break
             
             except LLMInputTooLargeError:
+                logger.warning(f"Chunk size {size} muito grande. Tentando reduzir...")
                 # Se falhar por tamanho e for o menor tamanho possível, propaga o erro
                 if size == 1:
                     raise
                 continue
         
         if not chunk_success:
+            logger.error("Falha crítica: Não foi possível processar o chunk mesmo com tamanho mínimo.")
             raise RuntimeError("Falha inesperada no processamento de chunks.")
 
     final_labels = pd.concat(all_labels_dfs, ignore_index=True)

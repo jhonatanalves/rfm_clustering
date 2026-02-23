@@ -117,7 +117,7 @@ def render_llm_results(rfm_out, cluster_profile, labels_df):
     prof_named = cluster_profile.merge(labels_df, on="ClusterId", how="left")
 
     st.subheader("Clusters nomeados (LLM)")
-    st.dataframe(prof_named, use_container_width=True, hide_index=True)
+    st.dataframe(prof_named, width="stretch", hide_index=True)
 
     st.subheader("Explicações por segmento")
     for _, row in prof_named.sort_values("RankQualidade").iterrows():
